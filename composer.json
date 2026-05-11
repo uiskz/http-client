@@ -1,0 +1,23 @@
+{
+    "name": "uiskz/http-client",
+    "description": "HTTP client using CURL",
+    "type": "library",
+    "license": "GPL-3.0-or-later",
+    "autoload": {
+        "psr-4": {
+            "Uiskz\\HttpClient\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Dmitriy Gritsenko"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "php": ">=8.3",
+        "ext-curl": "*",
+        "psr/log": "^3.0",
+        "ext-mbstring": "*"
+    }
+}
