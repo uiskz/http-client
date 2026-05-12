@@ -24,6 +24,14 @@ class Client
 
     const string COMPRESSION_GZIP = 'gzip';
 
+    private string $lastRequest = '';
+
+    private array $lastRequestHeaders = [];
+
+    private string $lastResponse = '';
+
+    private array $lastResponseHeaders = [];
+
     public function __construct(LoggerInterface $logger = null)
     {
         $this->logger = $logger;
@@ -47,6 +55,8 @@ class Client
     public function sendRequest(string $url, array $params): Response
     {
         $response = new Response();
+        $this->lastResponse = '';
+        $this->lastResponseHeaders = [];
 
         if (empty($params['timeout'])) {
             $timeOut = 30;
@@ -97,6 +107,9 @@ class Client
         if (!empty($params['headers'])) {
             $headers = array_merge($headers, $params['headers']);
         }
+        $this->lastRequest = $body;
+        $this->lastRequestHeaders = $headers;
+
         if (!empty($params['compression']) && self::COMPRESSION_GZIP == $params['compression']) {
             curl_setopt($curl, CURLOPT_ENCODING, 'gzip');
         }
@@ -135,6 +148,9 @@ class Client
             $body = substr($result, $header_size);
             $response->headers = $this->parseHeaders($header);
             $response->body = $body;
+            $this->lastResponse = $body;
+            $this->lastResponseHeaders = $this->parseHeaders($header);
+
         }
 
         return $response;
@@ -184,5 +200,25 @@ class Client
         }
 
         return $data;
+    }
+
+    public function getLastRequest(): string
+    {
+        return $this->lastRequest;
+    }
+
+    public function getLastRequestHeaders(): array
+    {
+        return $this->lastRequestHeaders;
+    }
+
+    public function getLastResponse(): string
+    {
+        return $this->lastResponse;
+    }
+
+    public function getLastResponseHeaders(): array
+    {
+        return $this->lastResponseHeaders;
     }
 }

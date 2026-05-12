@@ -11,5 +11,5 @@ UIS HTTP Client Library is a CURL wrapper for convenient sending of HTTP request
 REQUIREMENTS
 ------------
 
-The minimum requirement by this project library that your Web server supports PHP 8.3.
+The minimum requirement by this project library is PHP 8.3.
 
