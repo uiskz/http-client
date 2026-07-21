@@ -89,7 +89,7 @@ class Client
         ];
 
         $body = '';
-        if (!empty($params['method']) && self::METHOD_POST === strtolower($params['method'])) {
+        if (!empty($params['method']) && self::METHOD_GET !== strtolower($params['method'])) {
             if (!empty($params['body'])) {
                 $body = $params['body'];
                 if (!is_string($params['body'])) {
@@ -154,6 +154,106 @@ class Client
         }
 
         return $response;
+    }
+
+    /**
+     * Method sends multiple simultaneous requests to the URLs provided in the array.
+     * @param array $requests
+     * @param array $customHeaders
+     * @return Response[]
+     */
+    public function sendMultiRequest(array $requests, array $customHeaders = []): array
+    {
+        $responses = [];
+
+        $curlHandles = [];
+        $master = curl_multi_init();
+        foreach ($requests as $i => $request) {
+            if (empty($request['responseAttributes'])) {
+                $request['responseAttributes'] = [
+                    'url' => $request['url'],
+                ];
+            }
+            $curlHandles[$i] = [
+                'attributes' => $request['responseAttributes'],
+                'handle' => $this->getCurlHandle($request, $customHeaders)
+            ];
+            curl_multi_add_handle($master, $curlHandles[$i]['handle']);
+        }
+
+        $running = 0;
+        do {
+            curl_multi_exec($master, $running);
+            if ($running > 0) {
+                curl_multi_select($master, 0.1);
+            }
+        } while ($running > 0);
+
+        foreach ($curlHandles as $i => $curlHandle) {
+            $handle = $curlHandle['handle'];
+            $response = new Response();
+            $response->code = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+            if (curl_errno($handle)) {
+                $response->error = curl_error($handle);
+                if (!empty($this->logger)) {
+                    $this->logger->error('Ошибка запроса: ' . curl_error($handle), [
+                        'method' => __METHOD__,
+                        'line' => __LINE__,
+                    ]);
+                }
+            } else {
+                $result = curl_multi_getcontent($handle);
+                $header_size = curl_getinfo($handle, CURLINFO_HEADER_SIZE);
+                $header = substr($result, 0, $header_size);
+                $body = substr($result, $header_size);
+                $response->headers = $this->parseHeaders($header);
+                $response->body = $body;
+            }
+            $responses[$i] = [
+                'attributes' => $curlHandle['attributes'],
+                'response' => $response,
+            ];
+            curl_multi_remove_handle($master, $handle); // Remove the handle
+        }
+
+        curl_multi_close($master); // Close the multi handle
+
+        return $responses;
+    }
+
+    protected function getCurlHandle(array $request, array $customHeaders = []): \CurlHandle|bool
+    {
+        $timeOut = 15;
+
+        $headers = [
+            'Accept' => 'application/json',
+            'Content-Type' => 'application/json; charset=utf-8',
+            'User-Agent' => 'UIS HTTP Client ' . $this->version
+        ];
+
+        if (!empty($customHeaders)) {
+            $headers = array_merge($headers, $customHeaders);
+        }
+
+        $ch = curl_init($request['url']);
+        if ($ch) {
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HEADER, 1);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeOut);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 300);
+            curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+            curl_setopt($ch, CURLOPT_ENCODING, 'gzip');
+            $body = json_encode($request['json']);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+            $headers['Content-Length'] = mb_strlen($body);
+            $headers = $this->prepareHeaders($headers);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        }
+
+        return $ch;
     }
 
     /**
