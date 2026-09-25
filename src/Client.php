@@ -50,9 +50,10 @@ class Client
      *                      - json (array): JSON payload to be sent in the request body.
      *                      - compression (int): Compression type (e.g., COMPRESSION_GZIP).
      *                      - headers (array): Additional custom headers to include in the request.
+     * @param array $context An array of additional context options for the request logging.
      * @return Response A Response object containing the HTTP status code, headers, body, and potential error information.
      */
-    public function sendRequest(string $url, array $params): Response
+    public function sendRequest(string $url, array $params, array $context = []): Response
     {
         $response = new Response();
         $this->lastResponse = '';
@@ -65,8 +66,13 @@ class Client
         }
 
         $curl = curl_init($url);
+        $rawHeaders = '';
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
-        curl_setopt($curl, CURLOPT_HEADER, 1);
+        curl_setopt($curl, CURLOPT_HEADER, false);
+        curl_setopt($curl, CURLOPT_HEADERFUNCTION, static function ($curl, string $headerLine) use (&$rawHeaders): int {
+            $rawHeaders .= $headerLine;
+            return strlen($headerLine);
+        });
         curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, false);
         curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, $timeOut);
@@ -115,22 +121,29 @@ class Client
         }
 
         if (!empty($this->logger)) {
-            $this->logger->debug("Параметры запроса:\nURL: $url\nЗаголовки: " . print_r($headers, true)
-                . "\n" . print_r($body, true), [
+            $logContext = [
                 'method' => __METHOD__,
                 'line' => __LINE__,
-            ]);
+            ];
+            if (!empty($context)) {
+                $logContext = array_merge($logContext, $context);
+            }
+            $this->logger->debug("Параметры запроса:\nURL: $url\nЗаголовки: " . print_r($headers, true)
+                . "\n" . print_r($body, true), $logContext);
         }
 
         $headers = $this->prepareHeaders($headers);
         curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
 
         $result = curl_exec($curl);
+        if ($result === false) {
+            $result = '';
+        }
         if (!empty($this->logger)) {
-            $this->logger->debug("Ответ от хоста:\n" . print_r($result, true), [
-                'method' => __METHOD__,
-                'line' => __LINE__,
-            ]);
+            $this->logger->debug(
+                'Ответ от хоста: HTTP ' . curl_getinfo($curl, CURLINFO_HTTP_CODE) . ', bytes=' . strlen($result),
+                $logContext
+            );
         }
 
         $response->code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
@@ -143,14 +156,18 @@ class Client
                 ]);
             }
         } else {
-            $header_size = curl_getinfo($curl, CURLINFO_HEADER_SIZE);
-            $header = substr($result, 0, $header_size);
-            $body = substr($result, $header_size);
-            $response->headers = $this->parseHeaders($header);
-            $response->body = $body;
-            $this->lastResponse = $body;
-            $this->lastResponseHeaders = $this->parseHeaders($header);
+            $response->headers = $this->parseHeaders($rawHeaders);
+            $response->body = $result;
 
+            if (!empty($this->logger)) {
+                $this->logger->debug(
+                    "Заголовки ответа:\n" . print_r($response->headers, true) . "\n\n" . "Тело ответа:\n"
+                    . print_r($response->body, true),
+                    $logContext
+                );
+            }
+            $this->lastResponse = $result;
+            $this->lastResponseHeaders = $response->headers;
         }
 
         return $response;
